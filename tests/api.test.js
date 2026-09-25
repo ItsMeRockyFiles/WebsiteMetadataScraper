@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const app = require('../src/server');
-const vercelHandler = require('../api/v1/scrape');
+const vercelScrapeHandler = require('../api/v1/scrape');
+const vercelHealthHandler = require('../api/v1/health');
 const { validateUrl, isPrivateIp } = require('../src/services/ssrfValidator');
 const { scrapeMetadata, parseHtmlMetadata } = require('../src/services/scraperService');
 
@@ -79,7 +80,7 @@ test('Vercel Serverless Function Handler - api/v1/scrape.js', async () => {
     json: (data) => { jsonMissing = data; return mockResMissing; }
   };
 
-  await vercelHandler(mockReqMissing, mockResMissing);
+  await vercelScrapeHandler(mockReqMissing, mockResMissing);
   assert.equal(statusCodeMissing, 400);
   assert.equal(jsonMissing.success, false);
   assert.equal(jsonMissing.error.code, 'INVALID_URL');
@@ -93,11 +94,30 @@ test('Vercel Serverless Function Handler - api/v1/scrape.js', async () => {
     json: (data) => { jsonValid = data; return mockResValid; }
   };
 
-  await vercelHandler(mockReqValid, mockResValid);
+  await vercelScrapeHandler(mockReqValid, mockResValid);
   assert.equal(statusCodeValid, 200);
   assert.equal(jsonValid.success, true);
   assert.equal(jsonValid.request.domain, 'example.com');
   assert.equal(jsonValid.cached, false);
+});
+
+test('Vercel Serverless Function - api/v1/health.js', () => {
+  let statusCode = 0;
+  let responseData = null;
+  const headers = {};
+
+  const mockReq = {};
+  const mockRes = {
+    setHeader: (key, val) => { headers[key] = val; },
+    status: (code) => { statusCode = code; return mockRes; },
+    json: (data) => { responseData = data; return mockRes; }
+  };
+
+  vercelHealthHandler(mockReq, mockRes);
+  assert.equal(statusCode, 200);
+  assert.equal(responseData.status, 'ok');
+  assert.equal(responseData.service, 'Website Metadata Scraper API');
+  assert.ok(typeof responseData.timestamp === 'string');
 });
 
 test('Vercel Serverless Function - RapidAPI Proxy Secret Enforcement', async () => {
@@ -113,7 +133,7 @@ test('Vercel Serverless Function - RapidAPI Proxy Secret Enforcement', async () 
       json: (data) => { jsonUnauthorized = data; return mockResBad; }
     };
 
-    await vercelHandler(mockReqBad, mockResBad);
+    await vercelScrapeHandler(mockReqBad, mockResBad);
     assert.equal(statusUnauthorized, 403);
     assert.equal(jsonUnauthorized.success, false);
     assert.equal(jsonUnauthorized.error.code, 'FORBIDDEN');
@@ -130,7 +150,7 @@ test('Vercel Serverless Function - RapidAPI Proxy Secret Enforcement', async () 
       json: (data) => { jsonOk = data; return mockResGood; }
     };
 
-    await vercelHandler(mockReqGood, mockResGood);
+    await vercelScrapeHandler(mockReqGood, mockResGood);
     assert.equal(statusOk, 200);
     assert.equal(jsonOk.success, true);
 
