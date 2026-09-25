@@ -29,8 +29,11 @@ async function handleScrape(e) {
     const res = await fetch(apiEndpoint);
     const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error?.message || 'Failed to extract metadata');
+    if (!data.success) {
+      currentResult = data;
+      renderError(data);
+      document.getElementById('resultsSection').style.display = 'block';
+      return;
     }
 
     currentResult = data;
@@ -39,7 +42,7 @@ async function handleScrape(e) {
     document.getElementById('resultsSection').style.display = 'block';
 
   } catch (err) {
-    alert(`Error: ${err.message}`);
+    alert(`Network Error: ${err.message}`);
   } finally {
     setLoading(false);
   }
@@ -60,8 +63,32 @@ function setLoading(isLoading) {
   }
 }
 
+function renderError(data) {
+  const metaGrid = document.getElementById('metaGrid');
+  const jsonOutput = document.getElementById('jsonOutput');
+
+  jsonOutput.textContent = JSON.stringify(data, null, 2);
+
+  metaGrid.innerHTML = `
+    <div class="meta-item" style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08);">
+      <div class="meta-key" style="color: #f87171;">Error Code</div>
+      <div class="meta-value" style="font-weight: 700; color: #fca5a5;">${escapeHtml(data.error?.code || 'UNKNOWN_ERROR')}</div>
+    </div>
+    <div class="meta-item" style="border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08);">
+      <div class="meta-key" style="color: #f87171;">Error Message</div>
+      <div class="meta-value" style="color: #fff;">${escapeHtml(data.error?.message || 'An error occurred')}</div>
+    </div>
+  `;
+
+  document.getElementById('previewDomainText').textContent = 'Error';
+  document.getElementById('previewTitle').textContent = `Error: ${data.error?.code || 'Request Failed'}`;
+  document.getElementById('previewDesc').textContent = data.error?.message || 'Unable to extract metadata.';
+  document.getElementById('previewImgContainer').innerHTML = `<span class="preview-image-fallback" style="color:#f87171;">⚠️ Scrape Failed</span>`;
+  document.getElementById('previewFavicon').style.display = 'none';
+}
+
 function renderResults(data) {
-  const { meta, request, openGraph, twitterCard, headings } = data;
+  const { meta, request, jsonLd = [], headings = { h1: [], h2: [] } } = data;
 
   // 1. Visual Link Preview
   const imgContainer = document.getElementById('previewImgContainer');
@@ -94,9 +121,12 @@ function renderResults(data) {
     { key: 'Favicon URL', val: meta.favicon, isLink: true },
     { key: 'Image URL', val: meta.image, isLink: true },
     { key: 'Language', val: meta.lang },
-    { key: 'Keywords', val: meta.keywords && meta.keywords.length > 0 ? meta.keywords.join(', ') : null },
+    { key: 'Keywords', val: meta.keywords.length > 0 ? meta.keywords.join(', ') : 'None' },
     { key: 'Author', val: meta.author },
     { key: 'Theme Color', val: meta.themeColor },
+    { key: 'JSON-LD Schemas', val: `${jsonLd.length} schema item(s)` },
+    { key: 'Clean H1 Headings', val: headings.h1.length > 0 ? headings.h1.join(' | ') : 'None' },
+    { key: 'Clean H2 Headings', val: headings.h2.length > 0 ? headings.h2.join(' | ') : 'None' },
     { key: 'Response Time', val: `${request.responseTimeMs} ms` },
     { key: 'HTTP Status', val: request.statusCode }
   ];
@@ -153,7 +183,11 @@ const response = await fetch(url, {
   }
 });
 const metadata = await response.json();
-console.log(metadata);`,
+
+// Safe iteration without null checks
+metadata.jsonLd.forEach(schema => {
+  console.log(schema['@type']);
+});`,
 
     axios: `const axios = require('axios');
 
@@ -171,7 +205,7 @@ try {
   const response = await axios.request(options);
   console.log(response.data);
 } catch (error) {
-  console.error(error);
+  console.error(error.response?.data || error.message);
 }`,
 
     python: `import requests
@@ -185,7 +219,11 @@ headers = {
 }
 
 response = requests.get(url, headers=headers, params=querystring)
-print(response.json())`
+data = response.json()
+
+# Collections always return list or dict (never null)
+for schema in data.get("jsonLd", []):
+    print(schema.get("@type"))`
   };
 
   const activeLang = document.getElementById('snippetLangLabel').dataset.lang || 'curl';

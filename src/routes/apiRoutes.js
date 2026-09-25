@@ -16,7 +16,7 @@ router.get('/scrape', rapidApiAuth, async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: {
-          code: 'BAD_REQUEST',
+          code: 'INVALID_URL',
           message: 'Missing required query parameter: url. Example: /api/v1/scrape?url=https://github.com'
         }
       });
@@ -47,7 +47,7 @@ router.post('/scrape', rapidApiAuth, async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: {
-          code: 'BAD_REQUEST',
+          code: 'INVALID_URL',
           message: 'Missing required body property: url. Example: { "url": "https://github.com" }'
         }
       });

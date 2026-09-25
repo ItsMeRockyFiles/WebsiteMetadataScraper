@@ -4,14 +4,28 @@ High-performance, production-ready Node.js & Express REST API for extracting ric
 
 ---
 
-## ✨ Key Features
+## ✨ Key Features & Differentiators
 
-- **Full Metadata Extraction**: Extracts Title, Description, Open Graph (`og:*`), Twitter Cards (`twitter:*`), Favicon, Canonical URL, Language, Keywords, Author, Theme Color, and JSON-LD structured data.
-- **Visual & Code Demo UI**: Integrated glassmorphic web dashboard at `/` to test scraping live, preview link cards, view raw JSON, and generate client code snippets.
-- **SSRF & Security Protected**: Built-in Server-Side Request Forgery (SSRF) validation blocks private IP ranges (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `169.254.169.254`), loopbacks, and local network hostnames.
-- **RapidAPI Ready**: Supports optional proxy secret validation (`x-rapidapi-proxy-secret`) header to ensure requests originate strictly from RapidAPI.
-- **Rate Limiting & Security Headers**: Uses `express-rate-limit` and `helmet` headers out of the box.
-- **Turnkey Hosting**: Prepared with `render.yaml` for 1-click deployment on Render.
+- **Rich Metadata Extraction**: Title, Description, Open Graph (`og:*`), Twitter Cards (`twitter:*`), Favicon, Canonical URL, Language, Keywords, Author, Theme Color, and JSON-LD structured data.
+- **Deep JSON-LD Parsing**: Parses single objects, arrays, and complex `@graph` schemas (e.g. Products with price/currency, NewsArticle, Recipes, Organizations).
+- **Strict Empty Container Rules (Zero `null` Traps)**:
+  - All collections **always** return empty containers (`[]` or `{}`), never `null`.
+  - `jsonLd`: `[]`
+  - `keywords`: `[]`
+  - `openGraph`: `{}`
+  - `twitterCard`: `{}`
+  - `headings`: `{ h1: [], h2: [] }`
+  - *Benefit*: API clients can iterate (`data.jsonLd.forEach(...)`, `data.keywords.includes(...)`) directly without defensive `if (data.jsonLd)` null checks.
+- **Aggressive Multi-Source Image Fallback**:
+  - `meta.image` resolves across Open Graph, Twitter Cards, and JSON-LD:
+    $$\text{meta.image} = \text{og:image} \longrightarrow \text{twitter:image} \longrightarrow \text{jsonLd.image} \longrightarrow \text{link[rel="image\_src"]} \longrightarrow \text{null}$$
+- **Smart Site Name Resolution**:
+  - `meta.siteName` resolves: `og:site_name` ➔ `twitter:site` ➔ Target Domain (e.g., `roblox.com`).
+- **Robust Favicon Resolution**:
+  - `meta.favicon` resolves: `link[rel~="icon"]` ➔ `link[rel="shortcut icon"]` ➔ `link[rel="apple-touch-icon"]` ➔ `link[rel="apple-touch-icon-precomposed"]` ➔ `link[rel="mask-icon"]` ➔ `/favicon.ico` (all converted to absolute URLs or data URIs).
+- **Clean Content Headings**: Automatically strips navigation headers, footers, sidebars, and generic menu noise (`nav`, `footer`, `header`, `aside`) so `headings.h1` and `headings.h2` represent actual content hierarchy.
+- **SSRF & Security Shield**: Built-in Server-Side Request Forgery protection blocks private IP ranges (`127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `169.254.169.254`), loopbacks, and local hostnames.
+- **Standardized Error Payload**: Consistent error shapes with clear error codes (`FETCH_TIMEOUT`, `TARGET_HTTP_ERROR`, `TARGET_FETCH_ERROR`, `SSRF_RESTRICTED`, `INVALID_URL`).
 
 ---
 
@@ -52,7 +66,7 @@ Scrape website metadata using query parameters.
 **Query Parameters:**
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | - | Full target URL to scrape (e.g. `https://github.com`) |
+| `url` | string | Yes | - | Target URL to scrape (e.g. `https://github.com`) |
 | `extended` | boolean | No | `false` | Include raw `allTags` dictionary of every meta tag found |
 | `timeout` | integer | No | `10000` | Request timeout in milliseconds (max 20,000ms) |
 
@@ -65,7 +79,6 @@ curl -X GET "http://localhost:3000/api/v1/scrape?url=https://github.com"
 
 Scrape website metadata using JSON request body.
 
-**Request Body:**
 ```json
 {
   "url": "https://github.com",
@@ -79,7 +92,7 @@ Health check endpoint returning server status, uptime, and memory statistics.
 
 ---
 
-## 📦 Sample API Response
+## 📦 Sample Success Response
 
 ```json
 {
@@ -124,16 +137,41 @@ Health check endpoint returning server status, uptime, and memory statistics.
   ],
   "headings": {
     "h1": ["Let's build from here"],
-    "h2": ["The AI-powered developer platform"]
+    "h2": ["The AI-powered developer platform", "Accelerate high-quality software development"]
   }
 }
 ```
 
 ---
 
-## 🧪 Running Tests
+## ⚠️ Standardized Error Response Format
 
-Run the test suite with Node's native test runner:
+All failed requests return a consistent JSON payload:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "FETCH_TIMEOUT",
+    "message": "Target site did not respond within timeout limit (10000ms).",
+    "targetUrl": "https://example-slow-site.com"
+  }
+}
+```
+
+### Error Codes Table:
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `INVALID_URL` | 400 | Missing or malformed URL string |
+| `SSRF_RESTRICTED` | 400 | URL targets local IP (`127.0.0.1`), loopback, or internal subnet |
+| `TARGET_HTTP_ERROR` | 422 | Target server returned 4xx or 5xx HTTP response |
+| `TARGET_FETCH_ERROR` | 502 | Connection refused, DNS failure, or socket failure |
+| `FETCH_TIMEOUT` | 504 | Target server took longer than timeout limit |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit exceeded |
+
+---
+
+## 🧪 Running Tests
 
 ```bash
 npm test
@@ -144,18 +182,16 @@ npm test
 ## 🌐 Deploying to Render & Publishing on RapidAPI
 
 ### Step 1: Deploy on Render
-1. Push this repository to GitHub.
-2. Go to [Render Dashboard](https://dashboard.render.com/) and click **New +** -> **Web Service**.
-3. Connect your repository. Render will automatically detect `render.yaml`.
-4. Set your environment variables (e.g. `NODE_ENV=production`).
+1. Push repository to GitHub.
+2. Click **New +** ➔ **Web Service** on Render Dashboard.
+3. Connect repository (`render.yaml` will auto-configure build and start commands).
 
 ### Step 2: Publish on RapidAPI Hub
-1. Log into [RapidAPI Provider Studio](https://rapidapi.com/provider).
-2. Click **Add New API**. Name it `Website Metadata Scraper`.
-3. Set the **Target Base URL** to your Render deployment: `https://your-app.onrender.com/api/v1`.
-4. Add the `/scrape` endpoint under **Endpoints**.
-5. Set up pricing tiers (e.g., Free: 100 req/day, Basic: 10,000 req/mo for $9.99).
-6. Enable **RapidAPI Proxy Secret** and copy the secret key into your Render environment as `RAPIDAPI_PROXY_SECRET`.
+1. Open [RapidAPI Provider Studio](https://rapidapi.com/provider).
+2. Click **Add New API** (Name: `Website Metadata Scraper`).
+3. Set **Target Base URL**: `https://your-app.onrender.com/api/v1`.
+4. Configure `/scrape` endpoint parameter `url` (String, Required).
+5. Set `RAPIDAPI_PROXY_SECRET` in Render env variables to secure the endpoint.
 
 ---
 

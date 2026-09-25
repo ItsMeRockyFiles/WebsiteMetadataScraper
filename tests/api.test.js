@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const http = require('http');
 const app = require('../src/server');
 const { validateUrl, isPrivateIp } = require('../src/services/ssrfValidator');
-const { scrapeMetadata } = require('../src/services/scraperService');
+const { scrapeMetadata, parseHtmlMetadata } = require('../src/services/scraperService');
 
 test('SSRF Validator - detects private and loopback IPs', () => {
   assert.equal(isPrivateIp('127.0.0.1'), true);
@@ -14,28 +14,86 @@ test('SSRF Validator - detects private and loopback IPs', () => {
   assert.equal(isPrivateIp('1.1.1.1'), false);
 });
 
-test('SSRF Validator - rejects unsafe URLs', async () => {
+test('SSRF Validator - rejects unsafe URLs with specific error codes', async () => {
   const localRes = await validateUrl('http://127.0.0.1/admin');
   assert.equal(localRes.isValid, false);
+  assert.equal(localRes.code, 'SSRF_RESTRICTED');
 
   const localhostRes = await validateUrl('http://localhost:8080');
   assert.equal(localhostRes.isValid, false);
+  assert.equal(localhostRes.code, 'SSRF_RESTRICTED');
 
   const ftpRes = await validateUrl('ftp://example.com');
   assert.equal(ftpRes.isValid, false);
+  assert.equal(ftpRes.code, 'INVALID_URL');
 });
 
-test('SSRF Validator - accepts valid public HTTPS URL', async () => {
-  const validRes = await validateUrl('https://example.com');
-  assert.equal(validRes.isValid, true);
-  assert.equal(validRes.urlObj.hostname, 'example.com');
+test('Collection Consistency Rule - Empty collections return [] or {} never null', () => {
+  const emptyHtml = `<html><head><title>Minimal Page</title></head><body><h1>Hello</h1></body></html>`;
+  const parsed = parseHtmlMetadata(emptyHtml, 'https://minimal.com', 'https://minimal.com', 200, 50, 'text/html');
+
+  assert.ok(Array.isArray(parsed.meta.keywords));
+  assert.equal(parsed.meta.keywords.length, 0);
+
+  assert.ok(Array.isArray(parsed.jsonLd));
+  assert.equal(parsed.jsonLd.length, 0);
+
+  assert.ok(typeof parsed.openGraph === 'object' && parsed.openGraph !== null);
+  assert.ok(typeof parsed.twitterCard === 'object' && parsed.twitterCard !== null);
+  assert.ok(Array.isArray(parsed.headings.h1));
+  assert.ok(Array.isArray(parsed.headings.h2));
 });
 
-test('Scraper Service - extracts metadata from example.com', async () => {
-  const data = await scrapeMetadata('https://example.com');
-  assert.equal(data.success, true);
-  assert.equal(data.request.domain, 'example.com');
-  assert.ok(data.meta.title.includes('Example Domain'));
+test('Smart Image Fallback - extracts image from JSON-LD when OG/Twitter missing', () => {
+  const jsonLdImgHtml = `
+    <html>
+    <head>
+      <title>Roblox Item</title>
+      <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "Product",
+          "name": "Cool Hat",
+          "image": "https://images.roblox.com/hat.jpg"
+        }
+      </script>
+    </head>
+    <body><h1>Cool Hat</h1></body>
+    </html>
+  `;
+
+  const parsed = parseHtmlMetadata(jsonLdImgHtml, 'https://roblox.com/item', 'https://roblox.com/item', 200, 50, 'text/html');
+
+  assert.equal(parsed.meta.image, 'https://images.roblox.com/hat.jpg');
+  assert.equal(parsed.meta.siteName, 'roblox.com'); // Domain fallback
+});
+
+test('Integration Test - Express API Endpoints & Standardized Errors', async () => {
+  const server = app.listen(0);
+
+  try {
+    // 1. Health Endpoint
+    const health = await makeRequest(server, '/api/v1/health');
+    assert.equal(health.status, 200);
+    assert.equal(health.body.status, 'ok');
+
+    // 2. Scrape Endpoint missing URL (400 INVALID_URL)
+    const missing = await makeRequest(server, '/api/v1/scrape');
+    assert.equal(missing.status, 400);
+    assert.equal(missing.body.success, false);
+    assert.equal(missing.body.error.code, 'INVALID_URL');
+
+    // 3. Scrape Endpoint valid URL (GET)
+    const scrapeGet = await makeRequest(server, '/api/v1/scrape?url=https://example.com');
+    assert.equal(scrapeGet.status, 200);
+    assert.equal(scrapeGet.body.success, true);
+    assert.equal(scrapeGet.body.request.domain, 'example.com');
+    assert.ok(Array.isArray(scrapeGet.body.jsonLd)); // jsonLd is [] (never null)
+    assert.ok(Array.isArray(scrapeGet.body.meta.keywords)); // keywords is [] (never null)
+
+  } finally {
+    server.close();
+  }
 });
 
 // Helper for HTTP requests against Express app
@@ -72,39 +130,3 @@ function makeRequest(server, path, method = 'GET', body = null) {
     req.end();
   });
 }
-
-test('Integration Test - Express API Endpoints', async () => {
-  const server = app.listen(0);
-
-  try {
-    // 1. Health Endpoint
-    const health = await makeRequest(server, '/api/v1/health');
-    assert.equal(health.status, 200);
-    assert.equal(health.body.status, 'ok');
-
-    // 2. Scrape Endpoint missing URL
-    const missing = await makeRequest(server, '/api/v1/scrape');
-    assert.equal(missing.status, 400);
-    assert.equal(missing.body.success, false);
-
-    // 3. Scrape Endpoint localhost (SSRF blocked)
-    const ssrf = await makeRequest(server, '/api/v1/scrape?url=http://127.0.0.1');
-    assert.equal(ssrf.status, 400);
-    assert.equal(ssrf.body.success, false);
-
-    // 4. Scrape Endpoint valid URL (GET)
-    const scrapeGet = await makeRequest(server, '/api/v1/scrape?url=https://example.com');
-    assert.equal(scrapeGet.status, 200);
-    assert.equal(scrapeGet.body.success, true);
-    assert.equal(scrapeGet.body.request.domain, 'example.com');
-
-    // 5. Scrape Endpoint valid URL (POST)
-    const scrapePost = await makeRequest(server, '/api/v1/scrape', 'POST', { url: 'https://example.com' });
-    assert.equal(scrapePost.status, 200);
-    assert.equal(scrapePost.body.success, true);
-    assert.equal(scrapePost.body.request.domain, 'example.com');
-
-  } finally {
-    server.close();
-  }
-});

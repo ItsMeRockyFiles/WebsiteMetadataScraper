@@ -20,7 +20,12 @@ async function scrapeMetadata(targetUrl, options = {}) {
   // 1. SSRF and URL validation
   const validation = await validateUrl(targetUrl);
   if (!validation.isValid) {
-    throw { statusCode: 400, message: validation.error };
+    throw {
+      statusCode: 400,
+      code: validation.code || 'INVALID_URL',
+      message: validation.error,
+      targetUrl: targetUrl
+    };
   }
 
   const cleanUrl = validation.urlObj.href;
@@ -42,12 +47,27 @@ async function scrapeMetadata(targetUrl, options = {}) {
     });
   } catch (err) {
     if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
-      throw { statusCode: 504, message: `Gateway Timeout: Request to target URL exceeded timeout limit (${timeout}ms).` };
+      throw {
+        statusCode: 504,
+        code: 'FETCH_TIMEOUT',
+        message: `Target site did not respond within timeout limit (${timeout}ms).`,
+        targetUrl: cleanUrl
+      };
     }
     if (err.response) {
-      throw { statusCode: 422, message: `Target server returned HTTP ${err.response.status}: ${err.response.statusText}` };
+      throw {
+        statusCode: 422,
+        code: 'TARGET_HTTP_ERROR',
+        message: `Target server returned HTTP status ${err.response.status}: ${err.response.statusText}`,
+        targetUrl: cleanUrl
+      };
     }
-    throw { statusCode: 502, message: `Failed to fetch target URL: ${err.message}` };
+    throw {
+      statusCode: 502,
+      code: 'TARGET_FETCH_ERROR',
+      message: `Failed to fetch target URL: ${err.message}`,
+      targetUrl: cleanUrl
+    };
   }
 
   const responseTimeMs = Date.now() - startTime;
@@ -55,11 +75,18 @@ async function scrapeMetadata(targetUrl, options = {}) {
   const contentType = response.headers['content-type'] || '';
 
   if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml') && !contentType.includes('text/xml')) {
-    // If it's an image/pdf/json directly, provide lightweight response
     return buildNonHtmlResponse(cleanUrl, finalUrl, response.status, responseTimeMs, contentType);
   }
 
   const html = response.data;
+  return parseHtmlMetadata(html, cleanUrl, finalUrl, response.status, responseTimeMs, contentType, { extended });
+}
+
+/**
+ * Core HTML Metadata Parsing Function
+ */
+function parseHtmlMetadata(html, cleanUrl, finalUrl, statusCode, responseTimeMs, contentType, options = {}) {
+  const { extended = false } = options;
   const $ = cheerio.load(html);
 
   // Helper for absolute URL conversion
@@ -74,7 +101,7 @@ async function scrapeMetadata(targetUrl, options = {}) {
     }
   };
 
-  // 3. Extract Meta Tags
+  // 3. Extract All Meta Tags
   const metaTags = {};
   $('meta').each((_, el) => {
     const name = $(el).attr('name') || $(el).attr('property') || $(el).attr('itemprop');
@@ -102,20 +129,69 @@ async function scrapeMetadata(targetUrl, options = {}) {
     }
   });
 
-  // Primary Metadata Resolution
+  // 4. JSON-LD Structured Data Parsing
+  const jsonLd = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const content = $(el).html();
+      if (content) {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          jsonLd.push(...parsed);
+        } else if (parsed['@graph'] && Array.isArray(parsed['@graph'])) {
+          jsonLd.push(...parsed['@graph']);
+        } else {
+          jsonLd.push(parsed);
+        }
+      }
+    } catch {
+      // Ignore malformed JSON-LD scripts
+    }
+  });
+
+  // Extract JSON-LD Image Fallback if available
+  let jsonLdImage = null;
+  if (jsonLd.length > 0) {
+    for (const item of jsonLd) {
+      if (item.image) {
+        if (typeof item.image === 'string') {
+          jsonLdImage = item.image;
+          break;
+        } else if (typeof item.image === 'object' && item.image.url) {
+          jsonLdImage = item.image.url;
+          break;
+        } else if (Array.isArray(item.image) && item.image.length > 0) {
+          const firstImg = item.image[0];
+          jsonLdImage = typeof firstImg === 'string' ? firstImg : (firstImg.url || null);
+          if (jsonLdImage) break;
+        }
+      }
+    }
+  }
+
+  // Primary Metadata Resolution with fallback order
   const rawTitle = openGraph.title || twitterCard.title || $('title').first().text().trim() || $('h1').first().text().trim() || null;
   const title = rawTitle ? rawTitle.replace(/\s+/g, ' ') : null;
 
   const rawDesc = openGraph.description || twitterCard.description || metaTags['description'] || null;
   const description = rawDesc ? rawDesc.replace(/\s+/g, ' ') : null;
 
-  const rawImage = openGraph.image || openGraph['image:secure_url'] || twitterCard.image || $('link[rel="image_src"]').attr('href') || null;
+  // Smart Image Fallback Order: og:image -> og:image:secure_url -> twitter:image -> twitter:image:src -> jsonLd.image -> link[rel="image_src"]
+  const rawImage = openGraph.image || 
+                   openGraph['image:secure_url'] || 
+                   twitterCard.image || 
+                   twitterCard['image:src'] || 
+                   jsonLdImage || 
+                   $('link[rel="image_src"]').attr('href') || 
+                   null;
   const image = toAbsolute(rawImage);
 
-  // Favicon Resolution
+  // Favicon Fallback Order & Resolution: icon -> shortcut icon -> apple-touch-icon -> apple-touch-icon-precomposed -> mask-icon -> /favicon.ico
   const faviconRel = $('link[rel~="icon"]').attr('href') || 
                      $('link[rel="shortcut icon"]').attr('href') || 
                      $('link[rel="apple-touch-icon"]').attr('href') || 
+                     $('link[rel="apple-touch-icon-precomposed"]').attr('href') || 
+                     $('link[rel="mask-icon"]').attr('href') || 
                      '/favicon.ico';
   const favicon = toAbsolute(faviconRel);
 
@@ -123,7 +199,7 @@ async function scrapeMetadata(targetUrl, options = {}) {
   const canonicalRel = $('link[rel="canonical"]').attr('href') || openGraph.url || null;
   const canonical = toAbsolute(canonicalRel) || finalUrl;
 
-  // Language & Keywords
+  // Language & Keywords (Always Array)
   const lang = $('html').attr('lang') || metaTags['language'] || metaTags['og:locale'] || null;
   const keywordsRaw = metaTags['keywords'] || null;
   const keywords = keywordsRaw ? keywordsRaw.split(',').map(k => k.trim()).filter(Boolean) : [];
@@ -131,44 +207,40 @@ async function scrapeMetadata(targetUrl, options = {}) {
   // Author & Publisher
   const author = metaTags['author'] || metaTags['article:author'] || twitterCard.creator || metaTags['publisher'] || null;
   const themeColor = metaTags['theme-color'] || metaTags['msapplication-tilecolor'] || null;
-  const siteName = openGraph.site_name || new URL(finalUrl).hostname.replace(/^www\./, '');
+  const siteName = openGraph.site_name || twitterCard.site || new URL(finalUrl).hostname.replace(/^www\./, '');
 
-  // JSON-LD Structured Data
-  const jsonLd = [];
-  $('script[type="application/ld+json"]').each((_, el) => {
-    try {
-      const content = $(el).html();
-      if (content) {
-        const parsed = JSON.parse(content);
-        jsonLd.push(parsed);
-      }
-    } catch {
-      // Ignore invalid JSON-LD scripts
+  // 5. Headings Content Extraction (Clean nav, header, footer noise)
+  const $content = cheerio.load($.html());
+  $content('nav, footer, header, aside, [role="navigation"], [role="contentinfo"], .nav, .navigation, .footer, .header, .sidebar, #footer, #nav, #sidebar, #header').remove();
+
+  const headings = { h1: [], h2: [] };
+  const genericNoise = [
+    'navigation', 'navigation menu', 'site-wide links', 'footer', 'header', 
+    'menu', 'table of contents', 'search', 'skip to main content', 'main menu'
+  ];
+
+  $content('h1').slice(0, 5).each((_, el) => {
+    const text = $content(el).text().trim().replace(/\s+/g, ' ');
+    if (text && !genericNoise.includes(text.toLowerCase())) {
+      headings.h1.push(text);
     }
   });
 
-  // Headings
-  const headings = {
-    h1: [],
-    h2: []
-  };
-  $('h1').slice(0, 5).each((_, el) => {
-    const text = $(el).text().trim().replace(/\s+/g, ' ');
-    if (text) headings.h1.push(text);
-  });
-  $('h2').slice(0, 10).each((_, el) => {
-    const text = $(el).text().trim().replace(/\s+/g, ' ');
-    if (text) headings.h2.push(text);
+  $content('h2').slice(0, 10).each((_, el) => {
+    const text = $content(el).text().trim().replace(/\s+/g, ' ');
+    if (text && !genericNoise.includes(text.toLowerCase())) {
+      headings.h2.push(text);
+    }
   });
 
-  // Final metadata response structure
+  // 6. Final Metadata Response Structure (Collections always return [] or {})
   const result = {
     success: true,
     request: {
       url: cleanUrl,
       finalUrl: finalUrl,
       domain: new URL(finalUrl).hostname,
-      statusCode: response.status,
+      statusCode: statusCode,
       responseTimeMs: responseTimeMs,
       contentType: contentType
     },
@@ -186,7 +258,7 @@ async function scrapeMetadata(targetUrl, options = {}) {
     },
     openGraph,
     twitterCard,
-    jsonLd: jsonLd.length > 0 ? jsonLd : null,
+    jsonLd,
     headings
   };
 
@@ -222,11 +294,12 @@ function buildNonHtmlResponse(cleanUrl, finalUrl, statusCode, responseTimeMs, co
     },
     openGraph: {},
     twitterCard: {},
-    jsonLd: null,
+    jsonLd: [],
     headings: { h1: [], h2: [] }
   };
 }
 
 module.exports = {
-  scrapeMetadata
+  scrapeMetadata,
+  parseHtmlMetadata
 };
