@@ -100,6 +100,45 @@ test('Vercel Serverless Function Handler - api/v1/scrape.js', async () => {
   assert.equal(jsonValid.cached, false);
 });
 
+test('Vercel Serverless Function - RapidAPI Proxy Secret Enforcement', async () => {
+  process.env.RAPIDAPI_PROXY_SECRET = 'my_secret_key_123';
+
+  try {
+    // 1. Request without secret header -> 403 FORBIDDEN
+    let statusUnauthorized = 0;
+    let jsonUnauthorized = null;
+    const mockReqBad = { query: { url: 'https://example.com' }, headers: {} };
+    const mockResBad = {
+      status: (code) => { statusUnauthorized = code; return mockResBad; },
+      json: (data) => { jsonUnauthorized = data; return mockResBad; }
+    };
+
+    await vercelHandler(mockReqBad, mockResBad);
+    assert.equal(statusUnauthorized, 403);
+    assert.equal(jsonUnauthorized.success, false);
+    assert.equal(jsonUnauthorized.error.code, 'FORBIDDEN');
+
+    // 2. Request with correct secret header -> 200 OK
+    let statusOk = 0;
+    let jsonOk = null;
+    const mockReqGood = {
+      query: { url: 'https://example.com' },
+      headers: { 'x-rapidapi-proxy-secret': 'my_secret_key_123' }
+    };
+    const mockResGood = {
+      status: (code) => { statusOk = code; return mockResGood; },
+      json: (data) => { jsonOk = data; return mockResGood; }
+    };
+
+    await vercelHandler(mockReqGood, mockResGood);
+    assert.equal(statusOk, 200);
+    assert.equal(jsonOk.success, true);
+
+  } finally {
+    delete process.env.RAPIDAPI_PROXY_SECRET;
+  }
+});
+
 test('Integration Test - Express API Endpoints & Standardized Errors', async () => {
   const server = app.listen(0);
 

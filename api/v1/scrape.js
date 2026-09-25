@@ -32,6 +32,18 @@ function getRedis() {
 const CACHE_TTL_SECONDS = 600; // 10 minutes
 
 module.exports = async (req, res) => {
+  // 🔒 SECURITY CHECK: Verify the request is coming from RapidAPI
+  const rapidApiSecret = process.env.RAPIDAPI_PROXY_SECRET;
+  if (rapidApiSecret) {
+    const incomingSecret = req.headers && req.headers['x-rapidapi-proxy-secret'];
+    if (incomingSecret !== rapidApiSecret) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Access denied. This API can only be accessed via RapidAPI.' }
+      });
+    }
+  }
+
   // Support both GET (query) and POST (body) — RapidAPI customers use both.
   const params = { ...(req.query || {}), ...(req.body || {}) };
   const { url, extended, userAgent, timeout, nocache } = params;
