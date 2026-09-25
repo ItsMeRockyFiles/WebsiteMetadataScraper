@@ -1,13 +1,13 @@
 # 🚀 Website Metadata Scraper API
 
-High-performance, production-ready Node.js API for extracting rich website metadata, Open Graph tags, Twitter Cards, favicons, JSON-LD structured data, and meta tags. Supports Express server hosting (Render) and Vercel Serverless Functions with Upstash Redis Caching.
+High-performance, production-ready Node.js API for extracting rich website metadata, Open Graph tags, Twitter Cards, favicons, JSON-LD structured data, and meta tags. Supports Express server hosting (Render) and Vercel Serverless Functions with Redis Cloud TCP caching (`ioredis`).
 
 ---
 
 ## ✨ Key Features & Differentiators
 
 - **Rich Metadata Extraction**: Title, Description, Open Graph (`og:*`), Twitter Cards (`twitter:*`), Favicon, Canonical URL, Language, Keywords, Author, Theme Color, and JSON-LD structured data.
-- **Vercel Serverless & Upstash Redis Caching**: Includes native Vercel serverless function (`api/v1/scrape.js`) with 10-minute Upstash Redis caching (`cached: true / false`).
+- **Vercel Serverless & Redis Cloud TCP Caching**: Includes native Vercel serverless function (`api/v1/scrape.js`) powered by `ioredis` with 10-minute caching (`cached: true / false`) and `Cache-Control: public, max-age=600` headers.
 - **Deep JSON-LD Parsing**: Parses single objects, arrays, and complex `@graph` schemas (e.g. Products with price/currency, NewsArticle, Recipes, Organizations).
 - **Strict Empty Container Rules (Zero `null` Traps)**:
   - All collections **always** return empty containers (`[]` or `{}`), never `null`.
@@ -34,7 +34,7 @@ High-performance, production-ready Node.js API for extracting rich website metad
 
 - **Runtime**: Node.js (v18+)
 - **Framework**: Express.js & Vercel Serverless Functions
-- **Cache**: `@upstash/redis` (Upstash KV / Redis)
+- **Cache**: `ioredis` (Redis Cloud TCP)
 - **HTTP Client**: Axios
 - **HTML Parser**: Cheerio
 - **Security & Utilities**: Helmet, Express-Rate-Limit, CORS, Node `dns` & `net`
@@ -95,16 +95,16 @@ Health check endpoint returning server status, uptime, and memory statistics.
 
 ---
 
-## ⚡ Deploying on Vercel with Upstash Redis Caching
+## ⚡ Deploying on Vercel with Redis Cloud Caching
 
 ### 1. Deploy Repository to Vercel
 1. Import repository on [Vercel Dashboard](https://vercel.com/new).
 2. Vercel automatically detects `api/v1/scrape.js` and `vercel.json`.
 
-### 2. Add Upstash Redis Integration
-1. On your Vercel project, go to **Storage** ➔ **Create Database** ➔ **Upstash KV / Redis**.
-2. Vercel automatically injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` environment variables into your deployment.
-3. Every response will return `"cached": true` on cache hits (TTL 600s)!
+### 2. Configure REDIS_URL Environment Variable
+1. In Vercel Project Settings ➔ **Environment Variables**, add:
+   - `REDIS_URL`: `rediss://default:your-password@your-redis-host:6379` (Redis Cloud TCP URI)
+2. Every response will return `"cached": true` on cache hits (TTL 600s)!
 
 ---
 
