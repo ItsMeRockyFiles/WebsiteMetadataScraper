@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: website-metadata-scraper
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RATE_LIMIT_MAX
+        value: 120

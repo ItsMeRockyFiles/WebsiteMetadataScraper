@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Metadata Scraper API | RapidAPI Ready</title>
+  <meta name="description" content="Extract website title, description, Open Graph tags, Twitter Cards, favicons, JSON-LD structured data and meta tags instantly. Ready for RapidAPI.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="badge">
+        <span class="badge-dot"></span> RapidAPI Compatible Endpoint
+      </div>
+      <h1>Website Metadata Scraper API</h1>
+      <p class="subtitle">Extract clean titles, Open Graph images, Twitter cards, favicons, structured data, and meta tags from any website URL instantly.</p>
+    </header>
+
+    <!-- Interactive Tester -->
+    <main class="app-grid">
+      <section class="glass-card">
+        <form id="scraperForm" class="search-form">
+          <div class="input-group">
+            <input 
+              type="url" 
+              id="urlInput" 
+              class="url-input" 
+              placeholder="https://github.com" 
+              required
+              autocomplete="off"
+            />
+            <button type="submit" id="submitBtn" class="btn-primary">
+              <span id="btnText">Extract Metadata</span>
+              <span id="btnSpinner" class="loading-spinner" style="display: none;"></span>
+            </button>
+          </div>
+
+          <div class="options-row">
+            <div class="preset-buttons">
+              <span class="preset-label">Try example:</span>
+              <button type="button" class="chip-btn" onclick="setSampleUrl('https://github.com')">GitHub</button>
+              <button type="button" class="chip-btn" onclick="setSampleUrl('https://techcrunch.com')">TechCrunch</button>
+              <button type="button" class="chip-btn" onclick="setSampleUrl('https://youtube.com')">YouTube</button>
+              <button type="button" class="chip-btn" onclick="setSampleUrl('https://dev.to')">DEV.to</button>
+            </div>
+
+            <label class="toggle-group">
+              <input type="checkbox" id="extendedToggle">
+              <span>Include Extended Meta Tags</span>
+            </label>
+          </div>
+        </form>
+      </section>
+
+      <!-- Results View -->
+      <section id="resultsSection" class="glass-card" style="display: none;">
+        <!-- Tabs Header -->
+        <div class="tabs-header">
+          <button type="button" class="tab-btn active" onclick="switchTab('preview')">🖼️ Visual Card Preview</button>
+          <button type="button" class="tab-btn" onclick="switchTab('breakdown')">📊 Metadata Summary</button>
+          <button type="button" class="tab-btn" onclick="switchTab('json')">⚡ Raw JSON Response</button>
+          <button type="button" class="tab-btn" onclick="switchTab('code')">💻 API Code Snippets</button>
+        </div>
+
+        <!-- Tab 1: Visual Card Preview -->
+        <div id="tab-preview" class="tab-content">
+          <div class="preview-card">
+            <div class="preview-image-container" id="previewImgContainer">
+              <span class="preview-image-fallback">No OG / Twitter Image Found</span>
+            </div>
+            <div class="preview-content">
+              <div class="preview-domain">
+                <img id="previewFavicon" class="preview-favicon" src="" alt="favicon" style="display:none;" />
+                <span id="previewDomainText">example.com</span>
+              </div>
+              <h3 id="previewTitle" class="preview-title">Page Title Preview</h3>
+              <p id="previewDesc" class="preview-desc">Page description metadata preview will appear here...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Metadata Breakdown -->
+        <div id="tab-breakdown" class="tab-content" style="display: none;">
+          <div id="metaGrid" class="meta-grid">
+            <!-- Dynamic elements populated by JS -->
+          </div>
+        </div>
+
+        <!-- Tab 3: JSON Output -->
+        <div id="tab-json" class="tab-content" style="display: none;">
+          <div class="code-wrapper">
+            <div class="code-header">
+              <span>JSON Payload</span>
+              <button class="btn-copy" onclick="copyJson()">Copy JSON</button>
+            </div>
+            <pre><code id="jsonOutput">{}</code></pre>
+          </div>
+        </div>
+
+        <!-- Tab 4: API Code Snippets -->
+        <div id="tab-code" class="tab-content" style="display: none;">
+          <div class="preset-buttons" style="margin-bottom: 1rem;">
+            <button type="button" class="chip-btn" onclick="showSnippet('curl')">cURL</button>
+            <button type="button" class="chip-btn" onclick="showSnippet('fetch')">JavaScript (Fetch)</button>
+            <button type="button" class="chip-btn" onclick="showSnippet('axios')">Node.js (Axios)</button>
+            <button type="button" class="chip-btn" onclick="showSnippet('python')">Python (Requests)</button>
+          </div>
+          <div class="code-wrapper">
+            <div class="code-header">
+              <span id="snippetLangLabel">cURL Request</span>
+              <button class="btn-copy" onclick="copySnippet()">Copy Code</button>
+            </div>
+            <pre><code id="snippetOutput"></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- RapidAPI Guide & Specs -->
+      <section class="rapidapi-banner">
+        <h2 class="rapidapi-title">🚀 How to Publish on RapidAPI Hub</h2>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">
+          This API is fully structured for simple monetization on RapidAPI:
+        </p>
+        <ol style="color: var(--text-main); margin-left: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.95rem;">
+          <li><strong>Deploy:</strong> Host this Node.js repository on Render, Railway, or Vercel.</li>
+          <li><strong>Create RapidAPI Listing:</strong> Add target base URL <code>https://your-app.onrender.com/api/v1</code>.</li>
+          <li><strong>Set Proxy Secret:</strong> Add <code>RAPIDAPI_PROXY_SECRET</code> in your <code>.env</code> on Render to reject requests that bypass RapidAPI.</li>
+          <li><strong>Define Endpoint:</strong> <code>GET /scrape?url={url}</code> with parameter <code>url</code> (String, Required).</li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      Website Metadata Scraper API • Ready for RapidAPI Deployment & Production Use
+    </footer>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
