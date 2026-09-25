@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/v1/scrape", "destination": "/api/v1/scrape" }
+  ]
+}

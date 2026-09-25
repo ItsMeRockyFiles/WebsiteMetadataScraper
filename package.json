@@ -21,6 +21,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@upstash/redis": "^1.34.0",
     "axios": "^1.7.9",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",

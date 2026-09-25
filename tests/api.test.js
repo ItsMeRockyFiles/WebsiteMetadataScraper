@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const app = require('../src/server');
+const vercelHandler = require('../api/v1/scrape');
 const { validateUrl, isPrivateIp } = require('../src/services/ssrfValidator');
 const { scrapeMetadata, parseHtmlMetadata } = require('../src/services/scraperService');
 
@@ -66,6 +67,37 @@ test('Smart Image Fallback - extracts image from JSON-LD when OG/Twitter missing
 
   assert.equal(parsed.meta.image, 'https://images.roblox.com/hat.jpg');
   assert.equal(parsed.meta.siteName, 'roblox.com'); // Domain fallback
+});
+
+test('Vercel Serverless Function Handler - api/v1/scrape.js', async () => {
+  // Test missing URL
+  let statusCodeMissing = 0;
+  let jsonMissing = null;
+  const mockReqMissing = { query: {} };
+  const mockResMissing = {
+    status: (code) => { statusCodeMissing = code; return mockResMissing; },
+    json: (data) => { jsonMissing = data; return mockResMissing; }
+  };
+
+  await vercelHandler(mockReqMissing, mockResMissing);
+  assert.equal(statusCodeMissing, 400);
+  assert.equal(jsonMissing.success, false);
+  assert.equal(jsonMissing.error.code, 'INVALID_URL');
+
+  // Test valid URL execution
+  let statusCodeValid = 0;
+  let jsonValid = null;
+  const mockReqValid = { query: { url: 'https://example.com' } };
+  const mockResValid = {
+    status: (code) => { statusCodeValid = code; return mockResValid; },
+    json: (data) => { jsonValid = data; return mockResValid; }
+  };
+
+  await vercelHandler(mockReqValid, mockResValid);
+  assert.equal(statusCodeValid, 200);
+  assert.equal(jsonValid.success, true);
+  assert.equal(jsonValid.request.domain, 'example.com');
+  assert.equal(jsonValid.cached, false);
 });
 
 test('Integration Test - Express API Endpoints & Standardized Errors', async () => {

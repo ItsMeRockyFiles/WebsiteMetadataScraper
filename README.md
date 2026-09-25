@@ -1,12 +1,13 @@
 # 🚀 Website Metadata Scraper API
 
-High-performance, production-ready Node.js & Express REST API for extracting rich website metadata, Open Graph tags, Twitter Cards, favicons, JSON-LD structured data, and meta tags. Designed specifically for hosting on Render and monetization on **RapidAPI**.
+High-performance, production-ready Node.js API for extracting rich website metadata, Open Graph tags, Twitter Cards, favicons, JSON-LD structured data, and meta tags. Supports Express server hosting (Render) and Vercel Serverless Functions with Upstash Redis Caching.
 
 ---
 
 ## ✨ Key Features & Differentiators
 
 - **Rich Metadata Extraction**: Title, Description, Open Graph (`og:*`), Twitter Cards (`twitter:*`), Favicon, Canonical URL, Language, Keywords, Author, Theme Color, and JSON-LD structured data.
+- **Vercel Serverless & Upstash Redis Caching**: Includes native Vercel serverless function (`api/v1/scrape.js`) with 10-minute Upstash Redis caching (`cached: true / false`).
 - **Deep JSON-LD Parsing**: Parses single objects, arrays, and complex `@graph` schemas (e.g. Products with price/currency, NewsArticle, Recipes, Organizations).
 - **Strict Empty Container Rules (Zero `null` Traps)**:
   - All collections **always** return empty containers (`[]` or `{}`), never `null`.
@@ -32,7 +33,8 @@ High-performance, production-ready Node.js & Express REST API for extracting ric
 ## 🛠️ Tech Stack
 
 - **Runtime**: Node.js (v18+)
-- **Framework**: Express.js
+- **Framework**: Express.js & Vercel Serverless Functions
+- **Cache**: `@upstash/redis` (Upstash KV / Redis)
 - **HTTP Client**: Axios
 - **HTML Parser**: Cheerio
 - **Security & Utilities**: Helmet, Express-Rate-Limit, CORS, Node `dns` & `net`
@@ -68,6 +70,7 @@ Scrape website metadata using query parameters.
 |-----------|------|----------|---------|-------------|
 | `url` | string | Yes | - | Target URL to scrape (e.g. `https://github.com`) |
 | `extended` | boolean | No | `false` | Include raw `allTags` dictionary of every meta tag found |
+| `nocache` | boolean | No | `false` | Bypass Redis cache and force fresh scrape (`true` / `1`) |
 | `timeout` | integer | No | `10000` | Request timeout in milliseconds (max 20,000ms) |
 
 **Example Request:**
@@ -92,90 +95,16 @@ Health check endpoint returning server status, uptime, and memory statistics.
 
 ---
 
-## 📦 Sample Success Response
+## ⚡ Deploying on Vercel with Upstash Redis Caching
 
-```json
-{
-  "success": true,
-  "request": {
-    "url": "https://github.com",
-    "finalUrl": "https://github.com/",
-    "domain": "github.com",
-    "statusCode": 200,
-    "responseTimeMs": 184,
-    "contentType": "text/html; charset=utf-8"
-  },
-  "meta": {
-    "title": "GitHub: Let's build from here",
-    "description": "GitHub is where over 100 million developers shape the future of software, together.",
-    "image": "https://github.githubassets.com/assets/campaign-social-042d2ce9733c.png",
-    "favicon": "https://github.githubassets.com/favicons/favicon.png",
-    "siteName": "GitHub",
-    "canonical": "https://github.com/",
-    "lang": "en",
-    "keywords": [],
-    "author": "GitHub",
-    "themeColor": "#1e2327"
-  },
-  "openGraph": {
-    "site_name": "GitHub",
-    "title": "GitHub: Let's build from here",
-    "description": "GitHub is where over 100 million developers shape the future of software...",
-    "image": "https://github.githubassets.com/assets/campaign-social-042d2ce9733c.png"
-  },
-  "twitterCard": {
-    "card": "summary_large_image",
-    "site": "@github",
-    "title": "GitHub: Let's build from here"
-  },
-  "jsonLd": [
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareSourceCode",
-      "name": "GitHub"
-    }
-  ],
-  "headings": {
-    "h1": ["Let's build from here"],
-    "h2": ["The AI-powered developer platform", "Accelerate high-quality software development"]
-  }
-}
-```
+### 1. Deploy Repository to Vercel
+1. Import repository on [Vercel Dashboard](https://vercel.com/new).
+2. Vercel automatically detects `api/v1/scrape.js` and `vercel.json`.
 
----
-
-## ⚠️ Standardized Error Response Format
-
-All failed requests return a consistent JSON payload:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "FETCH_TIMEOUT",
-    "message": "Target site did not respond within timeout limit (10000ms).",
-    "targetUrl": "https://example-slow-site.com"
-  }
-}
-```
-
-### Error Codes Table:
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `INVALID_URL` | 400 | Missing or malformed URL string |
-| `SSRF_RESTRICTED` | 400 | URL targets local IP (`127.0.0.1`), loopback, or internal subnet |
-| `TARGET_HTTP_ERROR` | 422 | Target server returned 4xx or 5xx HTTP response |
-| `TARGET_FETCH_ERROR` | 502 | Connection refused, DNS failure, or socket failure |
-| `FETCH_TIMEOUT` | 504 | Target server took longer than timeout limit |
-| `TOO_MANY_REQUESTS` | 429 | Rate limit exceeded |
-
----
-
-## 🧪 Running Tests
-
-```bash
-npm test
-```
+### 2. Add Upstash Redis Integration
+1. On your Vercel project, go to **Storage** ➔ **Create Database** ➔ **Upstash KV / Redis**.
+2. Vercel automatically injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` environment variables into your deployment.
+3. Every response will return `"cached": true` on cache hits (TTL 600s)!
 
 ---
 
@@ -189,9 +118,9 @@ npm test
 ### Step 2: Publish on RapidAPI Hub
 1. Open [RapidAPI Provider Studio](https://rapidapi.com/provider).
 2. Click **Add New API** (Name: `Website Metadata Scraper`).
-3. Set **Target Base URL**: `https://your-app.onrender.com/api/v1`.
+3. Set **Target Base URL**: `https://your-app.vercel.app/api/v1` or `https://your-app.onrender.com/api/v1`.
 4. Configure `/scrape` endpoint parameter `url` (String, Required).
-5. Set `RAPIDAPI_PROXY_SECRET` in Render env variables to secure the endpoint.
+5. Set `RAPIDAPI_PROXY_SECRET` in env variables to secure the endpoint.
 
 ---
 
